@@ -1,5 +1,5 @@
 ---
-description: Clean up branches that have merged (worktree, local branch, remote branch), showing the dry run first and applying only after the user approves
+description: Clean up branches that have merged, squash merges included via gh (worktree, local branch, remote branch), refusing anything that could lose work; shows the dry run first and applies only after the user approves
 argument-hint: "[--base NAME] [--remote NAME] [--repo DIR]"
 allowed-tools: Bash(deuce sweep), Bash(deuce sweep --json)
 ---
