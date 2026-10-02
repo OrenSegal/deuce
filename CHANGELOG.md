@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- A merged branch with no upstream is cleaned by one `sweep --apply` when the local base is behind its remote: the base is fast-forwarded first (only a fast-forward, never with uncommitted changes in its worktree), so `git branch -d`, which checks `HEAD`, sees the merge. The dry run shows that step. Before, the first sweep refused it as `safe-delete` and only the second cleaned it. If the base cannot be fast-forwarded, the branch is still refused as `safe-delete`, and the reason now says why.
+- A branch recreated by `deuce undo --last` is still kept by the next sweep (rule `no-commits`), but the reason no longer says it has no commits: it says it was created and never moved, and whether its commits are already on the base.
+
 ## 0.1.0
 
 ### Added
