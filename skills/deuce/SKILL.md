@@ -8,7 +8,7 @@ license: MIT
 
 deuce is the second half of "merge, then tidy". After branches merge, it finds every local branch that is merged into the base branch and, for each one, removes its worktree (only if clean), deletes the local branch and deletes the remote branch. Then it fetches with `--prune`, fast-forwards the base branch and prunes stale worktree metadata.
 
-It is built for people running many agent worktrees, where merged branches and their worktrees pile up. What it adds over `git branch --merged` and `git branch -d` is squash-merge detection through `gh`, plus refusals wherever a cleanup could lose work. Without `gh` it finds about what `git branch --merged` finds; if `gh` is missing or logged out, tell the user that squash-merged branches will be kept as not merged.
+It is built for people running many agent worktrees, where merged branches and their worktrees pile up. What it adds over `git branch --merged` and `git branch -d` is squash-merge detection through `gh`, plus refusals wherever a cleanup could lose work. Without `gh` it finds about what `git branch --merged` finds; if `gh` is missing or logged out, tell the user that multi-commit squash-merged branches will be kept as not merged.
 
 ## Workflow
 
