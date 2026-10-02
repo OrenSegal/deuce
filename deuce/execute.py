@@ -18,11 +18,18 @@ def apply(the_plan: Plan, log: AuditLog) -> None:
             if failed:
                 action.status, action.detail = SKIPPED, "an earlier step for this branch failed"
                 continue
-            if action.kind == "delete-branch" and ctx.repo.rev(f"refs/heads/{bp.branch}") != bp.tip:
+            if action.kind == "fast-forward":  # base, before a delete whose `git branch -d` checks HEAD
+                if ctx.repo.is_ancestor(bp.tip, "HEAD"):
+                    action.status, action.detail = SKIPPED, f"{ctx.base} already holds the tip"
+                    continue
+                _run(ctx, action)
+                if action.status == DONE and not ctx.repo.is_ancestor(bp.tip, "HEAD"):
+                    action.status, action.detail = FAILED, "HEAD still does not hold the tip after the fast-forward"
+            elif action.kind == "delete-branch" and ctx.repo.rev(f"refs/heads/{bp.branch}") != bp.tip:
                 action.status, action.detail = FAILED, "the branch moved since the plan; sweep again"
             else:
                 _run(ctx, action)
-            _log(log, ctx, action, bp.branch)
+            _log(log, ctx, action, ctx.base if action.kind == "fast-forward" else bp.branch)
             failed = action.status == FAILED
 
     fetch, _, prune = the_plan.finish

@@ -127,11 +127,24 @@ def build(ctx: Context) -> Plan:
             notes.append(f"worktree {wt.path} has a detached HEAD; skipped (deuce cleans up branches only)")
     if not ctx.has_remote:
         notes.append(f"no remote '{ctx.remote}': local steps only (no remote branch delete, fetch or fast-forward)")
-    branches = [decide(ctx, name, tip, by_branch.get(name)) for name, tip in ctx.repo.branches()]
-    return Plan(ctx, branches, finish(ctx), notes)
+    head_ff = _head_fast_forward(ctx)
+    branches = [decide(ctx, name, tip, by_branch.get(name), head_ff) for name, tip in ctx.repo.branches()]
+    steps = finish(ctx)
+    if any(a.kind == "fast-forward" for bp in branches for a in bp.actions):
+        steps[1].detail = (f"runs first, before the branches above that need it; here it runs again only if the "
+                           f"fetch moves {short_ref(ctx.base_ref)}")
+    return Plan(ctx, branches, steps, notes)
 
 
-def decide(ctx: Context, name: str, tip: str, wt: Worktree | None) -> BranchPlan:
+def _head_fast_forward(ctx: Context) -> Action | None:
+    """The base fast-forward, when base is what HEAD is at the repository root.
+    That HEAD is what `git branch -d` checks a branch with no upstream against,
+    so a planned fast-forward run first lets it see a merge it would miss."""
+    head = ctx.repo.git("symbolic-ref", "-q", "HEAD").out.strip()
+    return fast_forward(ctx) if head == f"refs/heads/{ctx.base}" else None
+
+
+def decide(ctx: Context, name: str, tip: str, wt: Worktree | None, head_ff: Action | None = None) -> BranchPlan:
     repo = ctx.repo
     bp = BranchPlan(name, tip, wt.path if wt else None)
     if name == ctx.base:
@@ -141,7 +154,12 @@ def decide(ctx: Context, name: str, tip: str, wt: Worktree | None) -> BranchPlan
         return bp.decide("protected", f"protected by '{pattern}'")
     remote_sha = repo.rev(f"refs/remotes/{ctx.remote}/{name}") if ctx.has_remote else None
     if remote_sha is None and repo.created_only(name):
-        return bp.decide("no-commits", "no commits on this branch yet (created and never moved, not on the remote)")
+        shown = short_ref(ctx.base_ref)
+        if repo.is_ancestor(tip, ctx.base_ref):
+            return bp.decide("no-commits", f"no commits beyond {shown}; created and never moved since, and not on "
+                                           "the remote (a fresh branch, or one `deuce undo` restored)")
+        return bp.decide("no-commits", f"created at this tip and never moved since, and not on the remote, with "
+                                       f"commits not on {shown} by ancestry (as when `deuce undo` restores a branch)")
 
     ev = bp.evidence = evidence.find(repo, ctx.gh, name, tip, ctx.base, ctx.base_ref)
     if ev.rule != "merged":
@@ -162,10 +180,15 @@ def decide(ctx: Context, name: str, tip: str, wt: Worktree | None) -> BranchPlan
     if not force:
         target = repo.upstream(name) or "HEAD"
         if not repo.is_ancestor(tip, target):
-            shown = short_ref(target) if target != "HEAD" else f"HEAD of {repo.root}"
-            return bp.decide("safe-delete", f"git branch -d would refuse: the tip is not merged into {shown}, which "
-                                            "is what git checks; --apply fast-forwards the base at the end, so the "
-                                            "next sweep can clean it")
+            if target == "HEAD" and head_ff and head_ff.status == PLANNED and repo.is_ancestor(tip, head_ff.sha):
+                bp.actions.append(Action("fast-forward", list(head_ff.args), head_ff.cwd, sha=head_ff.sha,
+                                         detail=f"first: git branch -d checks HEAD, which is {ctx.base}"))
+            else:
+                shown = short_ref(target) if target != "HEAD" else f"HEAD of {repo.root}"
+                why = f"; {ctx.base} is not fast-forwarded first: {head_ff.detail}" \
+                    if target == "HEAD" and head_ff and head_ff.status == SKIPPED else ""
+                return bp.decide("safe-delete", f"git branch -d would refuse: the tip is not merged into {shown}, "
+                                                f"which is what git checks{why}")
 
     if wt:
         ignored = repo.ignored(wt.path)
