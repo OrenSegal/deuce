@@ -4,7 +4,7 @@
 
 Part of [sous](https://github.com/OrenSegal/sous): tools for checking what coding agents actually do.
 
-deuce is the cleanup after a branch merges, the second half of "merge, then tidy". For every local branch that is merged into the base branch, it removes the branch's worktree (only if clean), deletes the local branch and deletes the remote branch. Then it fetches with `--prune`, fast-forwards the base branch and prunes stale worktree metadata.
+deuce is the cleanup after a pull request merges, squash merges included, and it refuses when cleaning up could lose work. For every local branch that is merged into the base branch, it removes the branch's worktree (only if clean), deletes the local branch and deletes the remote branch. Then it fetches with `--prune`, fast-forwards the base branch and prunes stale worktree metadata.
 
 By default it does none of that: `deuce sweep` is a dry run that prints exactly what it would do and why. `--apply` does it.
 
@@ -12,11 +12,31 @@ It ships as a Claude Code plugin (a skill, `/deuce:sweep` and `/deuce:status`, a
 
 ## Why
 
-If you run many agents, each in its own worktree on its own branch, merged work leaves debris: worktrees nobody will open again, local branches, remote branches. Cleaning that up by hand is tedious, and cleaning it up with a script is how uncommitted work gets deleted. A squash merge makes it worse: the branch's commits are not in the base branch, so `git branch --merged` does not list it and `git branch -d` refuses it.
+If you run many agents, each in its own worktree on its own branch, merged work leaves debris: worktrees, local branches, remote branches. deuce is worth using for one case: a branch whose pull request was **squash merged**, cleaned up **without losing work**. For everything else, the built-ins already do the job.
 
-- **Evidence, not guesses.** With `gh` installed, deuce asks GitHub for the branch's pull request, the only way to see a squash merge. Without it, the branch must be an ancestor of `origin/main`, or `git cherry` must find every commit there. The report says which evidence was used.
-- **Refuses rather than loses work.** Dirty or locked worktrees, commits that are not in the merged PR, a remote branch someone pushed to, an ambiguous PR: each is a refusal, and the branch is left exactly as it was.
-- **Recoverable.** Every applied action is logged with the branch's tip sha. `deuce undo --last` recreates the last deleted branch.
+What the built-ins already do, and where they stop:
+
+- **`git branch --merged main` with `git branch -d`** is already safe. git refuses to remove a dirty or locked worktree without `--force`, and `-d` refuses a branch that is not merged. It misses squash merges, because the branch's commits are not in the base branch. Adding `git push origin --delete` deletes a remote branch even when a teammate has pushed to it.
+- **`git fetch --prune` and then deleting the `[gone]` branches** (the `clean_gone` command of the `commit-commands` plugin in the official Claude Code marketplace) does catch squash merges. But it runs `git worktree remove --force` and `git branch -D`, so it also deletes uncommitted files, commits that were never pushed, and branches whose PR was closed without merging.
+- **Claude Code's own worktree cleanup** only touches worktrees that Claude Code created. It never deletes your branches or remote branches, and it decides "merged" from git state alone, so it cannot see a squash merge either.
+
+The table shows one throwaway repository with a bare remote (git 2.54, with a fake `gh` standing in for GitHub). Each column is one cleanup run, except that deuce needed a second sweep for the regular merge (see below):
+
+| Branch | `--merged` + `-d` | `[gone]` + `-D` | deuce with `gh` |
+|---|---|---|---|
+| regular merge | deleted | deleted | refused `safe-delete` (local main was behind); deleted by the second sweep |
+| squash merge | missed | deleted | deleted |
+| squash merge, then a new local commit | kept | deleted; the new commit is left unreachable | refused `pr-unpushed` |
+| merged, dirty worktree | git refused | worktree and its uncommitted files deleted | refused `dirty` |
+| merged, locked worktree | git refused | `--force` stopped by the lock | refused `locked` |
+| merged, a teammate pushed to the remote branch | local deleted; with `push --delete`, the teammate's commit is gone | kept | refused `remote-ahead` |
+| PR closed without merging | kept | deleted | refused `pr-closed` |
+| PR open | kept | kept | kept `pr-open` |
+
+- **Squash merges need `gh`.** deuce asks GitHub for the branch's pull request, which is the only way to see a squash merge. Without `gh`, the run above found no merge that `git branch --merged` missed: the squash-merged branch was kept as `not-merged`.
+- **It refuses instead of losing work.** It stops on dirty or locked worktrees, commits that are not in the merged PR, a remote branch someone pushed to, and a closed PR. In each case the branch is left exactly as it was.
+- **It is recoverable.** Every applied action is logged with the branch's tip sha. In the run above, `deuce undo --last` recreated the deleted squash-merged branch at that sha.
+- **A stale base takes two sweeps.** deuce does not fetch before planning. If your local base is behind, the first `--apply` refuses regular merges as `safe-delete` and then fast-forwards the base, and the second sweep cleans them up.
 
 ## Install
 
