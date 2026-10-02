@@ -4,7 +4,7 @@
 
 Part of [sous](https://github.com/OrenSegal/sous): tools for checking what coding agents actually do.
 
-deuce is the cleanup after a pull request merges, squash merges included, and it refuses whenever cleaning up could lose work. For every local branch that is merged into the base branch, it removes the branch's worktree (only if clean), deletes the local branch and deletes the remote branch. Then it fetches with `--prune`, fast-forwards the base branch and prunes stale worktree metadata.
+deuce is the cleanup after a pull request merges, squash merges included, and it refuses when cleaning up could lose work. For every local branch that is merged into the base branch, it removes the branch's worktree (only if clean), deletes the local branch and deletes the remote branch. Then it fetches with `--prune`, fast-forwards the base branch and prunes stale worktree metadata.
 
 By default it does none of that: `deuce sweep` is a dry run that prints exactly what it would do and why. `--apply` does it.
 
@@ -20,7 +20,7 @@ What the built-ins already do, and where they stop:
 - **`git fetch --prune` and then deleting the `[gone]` branches** (the `clean_gone` command of the `commit-commands` plugin in the official Claude Code marketplace) does catch squash merges. But it runs `git worktree remove --force` and `git branch -D`, so it also deletes uncommitted files, commits that were never pushed, and branches whose PR was closed without merging.
 - **Claude Code's own worktree cleanup** only touches worktrees that Claude Code created. It never deletes your branches or remote branches, and it decides "merged" from git state alone, so it cannot see a squash merge either.
 
-The table shows one throwaway repository with a bare remote (git 2.54, with a fake `gh` standing in for GitHub). Each column is one cleanup run:
+The table shows one throwaway repository with a bare remote (git 2.54, with a fake `gh` standing in for GitHub). Each column is one cleanup run, except that deuce needed a second sweep for the regular merge (see below):
 
 | Branch | `--merged` + `-d` | `[gone]` + `-D` | deuce with `gh` |
 |---|---|---|---|
