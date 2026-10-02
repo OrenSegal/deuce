@@ -40,7 +40,7 @@ A refused branch is left exactly as it is, and the exit code is 1. Report the re
 | `dirty` | the worktree has uncommitted or untracked changes |
 | `pr-unpushed` | the branch has commits that are not in the merged pull request |
 | `remote-ahead` | the remote branch has commits that are neither on the branch nor merged |
-| `safe-delete` | `git branch -d` would refuse (often a stale local base; the next sweep after `--apply` fast-forwards it usually clears it) |
+| `safe-delete` | `git branch -d` would refuse, even after fast-forwarding the base (often a base worktree with uncommitted changes) |
 
 Kept, not refused: the base branch, protected names (`main`, `master`, `develop`, `release/*`, plus `protect` in `.deuce.toml` and `DEUCE_PROTECT`), branches with no commits yet, unmerged branches, and branches whose PR is open. Detached-HEAD worktrees are skipped with a note.
 
