@@ -460,29 +460,68 @@ def test_remote_branch_already_deleted_on_the_remote_is_fine(capsys, sandbox):
     assert "feat/auto" not in sandbox.local_branches()
 
 
-def test_safe_delete_that_git_would_refuse_is_refused_in_the_plan(capsys, sandbox):
-    """No upstream left and a stale local main: `git branch -d` would refuse,
-    so the dry run says so instead of promising a delete that fails. --apply
-    fast-forwards main at the end, and the next sweep cleans the branch."""
-    sandbox.feature("feat/stale")
-    sandbox.merge("feat/stale")
-    sandbox.delete_on_remote("feat/stale")
+def _stale_base(sandbox, *branches):
+    """Merged on the remote, remote branches auto-deleted and pruned: no
+    upstream left, and local main is behind origin/main."""
+    for branch in branches:
+        sandbox.merge(branch)
+        sandbox.delete_on_remote(branch)
     git(sandbox.repo, "fetch", "-q", "--prune", "origin")
     assert sandbox.tip("main") != sandbox.tip("origin/main")
+    return sandbox.tip("main")
+
+
+def test_one_sweep_cleans_a_merge_when_local_base_is_behind(capsys, sandbox):
+    """`git branch -d` checks HEAD (main) when there is no upstream, so --apply
+    fast-forwards main first, and one sweep cleans the branch. The dry run
+    shows that step and changes nothing."""
+    sandbox.feature("feat/stale")
+    sandbox.feature("feat/stale-plain", worktree=False)
+    old_main = _stale_base(sandbox, "feat/stale", "feat/stale-plain")
+    new_main = sandbox.tip("origin/main")
 
     code, dry = _sweep(capsys, sandbox)
-    assert code == cli.EXIT_REFUSED
-    assert "branch -d would refuse" in by_branch(dry)["feat/stale"]["reason"]
-
-    code, report = _apply(capsys, sandbox)
-    assert code == cli.EXIT_REFUSED
-    assert by_branch(report)["feat/stale"]["decision"] == "refuse"
+    entries = by_branch(dry)
+    assert code == cli.EXIT_OK
+    assert entries["feat/stale"]["decision"] == "sweep"
+    assert [a["kind"] for a in entries["feat/stale"]["actions"]] == ["fast-forward", "remove-worktree",
+                                                                     "delete-branch"]
+    assert entries["feat/stale"]["actions"][0]["command"] == f"git merge --ff-only --quiet {new_main}"
+    assert [a["kind"] for a in entries["feat/stale-plain"]["actions"]] == ["fast-forward", "delete-branch"]
+    assert "runs first" in next(f for f in dry["finish"] if f["kind"] == "fast-forward")["detail"]
+    assert sandbox.tip("main") == old_main
     _untouched(sandbox, "feat/stale")
-    assert sandbox.tip("main") == sandbox.tip("origin/main")
+    _untouched(sandbox, "feat/stale-plain", worktree=False)
 
     code, report = _apply(capsys, sandbox)
+    entries = by_branch(report)
     assert code == cli.EXIT_OK
     assert "feat/stale" not in sandbox.local_branches()
+    assert "feat/stale-plain" not in sandbox.local_branches()
+    assert str(sandbox.worktree_path("feat/stale")) not in sandbox.worktrees()
+    assert sandbox.tip("main") == new_main
+    assert [a["status"] for a in entries["feat/stale"]["actions"]] == ["done", "done", "done"]
+    assert [a["status"] for a in entries["feat/stale-plain"]["actions"]] == ["skipped", "done"]
+    moved = [r for r in audit.AuditLog.default().rows() if r["action"] == "fast-forward"]
+    assert [(r["branch"], r["sha"], r["status"]) for r in moved] == [("main", new_main, "done")]
+
+
+def test_safe_delete_is_still_refused_when_base_cannot_be_fast_forwarded(capsys, sandbox):
+    """The same stale main, but its worktree has uncommitted changes, so it is
+    not fast-forwarded and `git branch -d` would refuse: nothing is touched."""
+    sandbox.feature("feat/stale")
+    old_main = _stale_base(sandbox, "feat/stale")
+    (sandbox.repo / "README").write_text("local edit\n")
+
+    code, report = _apply(capsys, sandbox)
+    entry = by_branch(report)["feat/stale"]
+    assert code == cli.EXIT_REFUSED
+    assert entry["rule"] == "safe-delete"
+    assert "branch -d would refuse" in entry["reason"]
+    assert "uncommitted changes" in entry["reason"]
+    _untouched(sandbox, "feat/stale")
+    assert sandbox.tip("main") == old_main
+    assert (sandbox.repo / "README").read_text() == "local edit\n"
 
 
 def test_fast_forward_skips_a_dirty_base_worktree(capsys, sandbox):

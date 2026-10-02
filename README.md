@@ -20,11 +20,11 @@ What the built-ins already do, and where they stop:
 - **`git fetch --prune` and then deleting the `[gone]` branches** (the `clean_gone` command of the `commit-commands` plugin in the official Claude Code marketplace) does catch squash merges. But it runs `git worktree remove --force` and `git branch -D`, so it also deletes uncommitted files, commits that were never pushed, and branches whose PR was closed without merging.
 - **Claude Code's own worktree cleanup** only touches worktrees that Claude Code created. It never deletes your branches or remote branches, and it decides "merged" from git state alone, so it cannot see a squash merge either.
 
-The table shows one throwaway repository with a bare remote (git 2.54, with a fake `gh` standing in for GitHub). Each column is one cleanup run, except that deuce needed a second sweep for the regular merge (see below):
+The table shows one throwaway repository with a bare remote (git 2.54, with a fake `gh` standing in for GitHub). Each column is one cleanup run:
 
 | Branch | `--merged` + `-d` | `[gone]` + `-D` | deuce with `gh` |
 |---|---|---|---|
-| regular merge | deleted | deleted | refused `safe-delete` (local main was behind); deleted by the second sweep |
+| regular merge | deleted | deleted | deleted (local main was behind, so it was fast-forwarded first) |
 | squash merge | missed | deleted | deleted |
 | squash merge, then a new local commit | kept | deleted; the new commit is left unreachable | refused `pr-unpushed` |
 | merged, dirty worktree | git refused | worktree and its uncommitted files deleted | refused `dirty` |
@@ -36,7 +36,7 @@ The table shows one throwaway repository with a bare remote (git 2.54, with a fa
 - **Squash merges need `gh`.** deuce asks GitHub for the branch's pull request, which is the only way to see a squash merge. Without `gh`, the run above found no merge that `git branch --merged` missed: the squash-merged branch was kept as `not-merged`.
 - **It refuses instead of losing work.** It stops on dirty or locked worktrees, commits that are not in the merged PR, a remote branch someone pushed to, and a closed PR. In each case the branch is left exactly as it was.
 - **It is recoverable.** Every applied action is logged with the branch's tip sha. In the run above, `deuce undo --last` recreated the deleted squash-merged branch at that sha.
-- **A stale base takes two sweeps.** deuce does not fetch before planning. If your local base is behind, the first `--apply` refuses regular merges as `safe-delete` and then fast-forwards the base, and the second sweep cleans them up.
+- **A stale base is fast-forwarded first.** deuce does not fetch before planning. If your local base is behind and checked out where deuce runs, a branch that `git branch -d` would only accept after the base catches up gets a fast-forward of the base as its first step, so one sweep cleans it. If the base cannot be fast-forwarded (uncommitted changes, or local commits), the branch is refused as `safe-delete`.
 
 ## Install
 
@@ -107,15 +107,16 @@ Every local branch gets exactly one rule. `sweep` branches are cleaned by `--app
 | `dirty` | refuse | Its worktree has uncommitted or untracked changes. Ignored files do not block, but they are named in the plan, since they go with the worktree. |
 | `pr-unpushed` | refuse | It has commits that are not in the merged pull request. |
 | `remote-ahead` | refuse | The remote branch has commits that are neither on the local branch nor merged. |
-| `safe-delete` | refuse | `git branch -d` would refuse it, and the force delete is not allowed. Usually a stale local base: `--apply` fast-forwards it, and the next sweep cleans the branch. |
+| `safe-delete` | refuse | `git branch -d` would refuse it, even after fast-forwarding the base, and the force delete is not allowed. |
 
 Rules are checked in this order: base, protected, no commits, merge evidence, the worktree, the PR's commits, the remote branch, the delete.
 
 For a `sweep` branch, `--apply` runs, in order, stopping at the first failure:
 
-1. `git worktree remove <path>`, without `--force`, so git itself refuses a dirty worktree too.
-2. `git branch -d <branch>`. The force delete (`-D`) is used only when the evidence is a squash-merged PR whose head sha is exactly the branch tip. The tip is re-read just before the delete; if it moved, the step fails.
-3. `git push --force-with-lease=<branch>:<sha> <remote> --delete <branch>`, only if a remote-tracking branch exists. The lease is the sha deuce saw, so a push that landed since the last fetch makes this step fail (`stale info`) instead of being thrown away. A remote branch that is already gone (GitHub's auto-delete) counts as done.
+1. Only when `git branch -d` would otherwise refuse: a fast-forward of the base branch (`git merge --ff-only`, where it is checked out), so that git, which checks a branch with no upstream against `HEAD`, sees the merge. Skipped if an earlier branch already did it.
+2. `git worktree remove <path>`, without `--force`, so git itself refuses a dirty worktree too.
+3. `git branch -d <branch>`. The force delete (`-D`) is used only when the evidence is a squash-merged PR whose head sha is exactly the branch tip. The tip is re-read just before the delete; if it moved, the step fails.
+4. `git push --force-with-lease=<branch>:<sha> <remote> --delete <branch>`, only if a remote-tracking branch exists. The lease is the sha deuce saw, so a push that landed since the last fetch makes this step fail (`stale info`) instead of being thrown away. A remote branch that is already gone (GitHub's auto-delete) counts as done.
 
 Then, whatever happened to the branches: `git fetch --prune <remote>`, a fast-forward of the base branch (only a fast-forward, and skipped if the worktree where base is checked out has uncommitted changes), and `git worktree prune`.
 
