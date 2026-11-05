@@ -1,5 +1,12 @@
 # deuce
 
+> **Moved.** Development of deuce moved to [sous/plugins/deuce](https://github.com/OrenSegal/sous/tree/main/plugins/deuce). The sous copy is the maintained one; this repo is kept for history. Install it from the sous marketplace:
+>
+> ```bash
+> claude plugin marketplace add OrenSegal/sous
+> claude plugin install deuce@sous
+> ```
+
 [![CI](https://github.com/OrenSegal/deuce/actions/workflows/ci.yml/badge.svg)](https://github.com/OrenSegal/deuce/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 Part of [sous](https://github.com/OrenSegal/sous): tools for checking what coding agents actually do.
@@ -45,8 +52,8 @@ The table shows one throwaway repository with a bare remote (git 2.54, with a fa
 As a Claude Code plugin:
 
 ```text
-/plugin marketplace add OrenSegal/deuce
-/plugin install deuce@deuce
+/plugin marketplace add OrenSegal/sous
+/plugin install deuce@sous
 ```
 
 This adds the `deuce` skill, the `/deuce:sweep` and `/deuce:status` commands, and puts `deuce` on the Bash tool's PATH while the plugin is enabled.
