@@ -52,8 +52,8 @@ The table shows one throwaway repository with a bare remote (git 2.54, with a fa
 As a Claude Code plugin:
 
 ```text
-/plugin marketplace add OrenSegal/deuce
-/plugin install deuce@deuce
+/plugin marketplace add OrenSegal/sous
+/plugin install deuce@sous
 ```
 
 This adds the `deuce` skill, the `/deuce:sweep` and `/deuce:status` commands, and puts `deuce` on the Bash tool's PATH while the plugin is enabled.
